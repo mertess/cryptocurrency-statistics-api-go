@@ -4,14 +4,21 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/mertess/cryptocurrency-statistics-api-go/internal/cache"
 	"github.com/mertess/cryptocurrency-statistics-api-go/internal/worker/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+const (
+	redisHost = "localhost:6379"
+	password  = ""
+	dbNumber  = 0
+)
+
+type DealsJson map[string]map[string]interface{}
 
 func Run(postgresDsn string) {
 	db, err := gorm.Open(postgres.Open(postgresDsn), &gorm.Config{})
@@ -20,11 +27,7 @@ func Run(postgresDsn string) {
 	}
 	log.Println("Connected to postgres...")
 
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+	cache := cache.NewRedis(redisHost, password, dbNumber, time.Minute*2)
 	log.Println("Connected to redis...")
 
 	buffer := make([]byte, 4096)
@@ -40,49 +43,30 @@ func Run(postgresDsn string) {
 		}
 		buffer = buffer[:n]
 
-		values := make(map[string]map[string]interface{})
+		values := make(DealsJson)
 		json.Unmarshal(buffer, &values)
 
 		log.Println("Got deal:")
 		log.Println(string(buffer))
 		log.Println()
 
-		for k, v := range values {
-			cachedValue, err := redisClient.Get(k).Result()
-			if err != nil && err != redis.Nil {
-				log.Println(err)
-				continue
-			}
+		createDeals(values, cache, db)
 
-			value := v["last"].(float64)
+		time.Sleep(time.Minute)
+	}
+}
 
-			if cachedValue != "" {
-				cachedValueFloat, err := strconv.ParseFloat(cachedValue, 64)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-
-				if cachedValueFloat == value {
-					continue
-				} else {
-					_, err = redisClient.Set(k, value, time.Minute*2).Result()
-					if err != nil && err != redis.Nil {
-						log.Println(err)
-						continue
-					}
-				}
-			} else {
-				_, err = redisClient.Set(k, value, time.Minute*2).Result()
-				if err != nil && err != redis.Nil {
-					log.Println(err)
-					continue
-				}
-			}
-
-			db.Create(models.NewDeal(k, value, time.Now().UTC()))
+func createDeals(values DealsJson, cache *cache.RedisCache, db *gorm.DB) {
+	for k, v := range values {
+		floatValue := v["last"].(float64)
+		_, ok := cache.GetFloat64(k)
+		if ok {
+			continue
 		}
 
-		time.Sleep(time.Second)
+		ok = cache.SetFloat64(k, floatValue)
+		if ok {
+			db.Create(models.NewDeal(k, floatValue, time.Now().UTC()))
+		}
 	}
 }
