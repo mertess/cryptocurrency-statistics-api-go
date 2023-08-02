@@ -27,7 +27,7 @@ func Run(postgresDsn string) {
 	}
 	log.Println("Connected to postgres...")
 
-	cache := cache.NewRedis(redisHost, password, dbNumber, time.Minute*2)
+	cache := cache.NewRedis(redisHost, password, dbNumber, time.Hour*48)
 	log.Println("Connected to redis...")
 
 	buffer := make([]byte, 4096)
@@ -59,8 +59,8 @@ func Run(postgresDsn string) {
 func createDeals(values DealsJson, cache *cache.RedisCache, db *gorm.DB) {
 	for k, v := range values {
 		floatValue := v["last"].(float64)
-		_, ok := cache.GetFloat64(k)
-		if ok {
+		value, ok := cache.GetFloat64(k)
+		if ok && value == floatValue {
 			continue
 		}
 
