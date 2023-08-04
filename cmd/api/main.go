@@ -1,19 +1,15 @@
 package main
 
 import (
-	"log"
-	"net/http"
-
+	"github.com/gin-gonic/gin"
 	"github.com/mertess/cryptocurrency-statistics-api-go/internal/api/handlers"
 )
 
 func main() {
-	http.HandleFunc("/lastPrice", handlers.GetLastPrice)
 
-	log.Println("Started listening...")
+	router := gin.Default()
 
-	err := http.ListenAndServe("localhost:8080", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	router.GET("/last-price", handlers.GetLastPrice)
+
+	router.Run()
 }
